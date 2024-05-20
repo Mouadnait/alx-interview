@@ -18,89 +18,68 @@ statistics from the beginning:
         status codes should be printed in ascending order.
 """
 
-
+import sys
+from typing import List
 import re
 
+REGEX_PATTERN = re.compile(r"(^(?:[0-9]{1,3}\.){3}[0-9]{1,3}) - \[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d+\]\s\"GET \/projects\/260 HTTP\/1.1\"\s(\d{3})\s(\d+)$")  # noqa
 
-def extract_input(input_line):
-    '''Extracts sections of a line of an HTTP request log.
-    '''
-    fp = (
-        r'\s*(?P<ip>\S+)\s*',
-        r'\s*\[(?P<date>\d+\-\d+\-\d+ \d+:\d+:\d+\.\d+)\]',
-        r'\s*"(?P<request>[^"]*)"\s*',
-        r'\s*(?P<status_code>\S+)',
-        r'\s*(?P<file_size>\d+)'
-    )
-    info = {
-        'status_code': 0,
-        'file_size': 0,
-    }
-    log_fmt = '{}\\-{}{}{}{}\\s*'.format(fp[0], fp[1], fp[2], fp[3], fp[4])
-    resp_match = re.fullmatch(log_fmt, input_line)
-    if resp_match is not None:
-        status_code = resp_match.group('status_code')
-        file_size = int(resp_match.group('file_size'))
-        info['status_code'] = status_code
-        info['file_size'] = file_size
-    return info
+total_file_size: int = 0
+counter: int = 0
+possible_states: List[List[int]] = [
+    [200, 0], [301, 0],
+    [400, 0], [401, 0],
+    [403, 0], [404, 0],
+    [405, 0], [500, 0]
+]
 
 
-def print_statistics(total_file_size, status_codes_stats):
-    '''Prints the accumulated statistics of the HTTP request log.
-    '''
-    print('File size: {:d}'.format(total_file_size), flush=True)
-    for status_code in sorted(status_codes_stats.keys()):
-        num = status_codes_stats.get(status_code, 0)
-        if num > 0:
-            print('{:s}: {:d}'.format(status_code, num), flush=True)
-
-
-def update_metrics(line, total_file_size, status_codes_stats):
-    '''Updates the metrics from a given HTTP request log.
-
+def print_status(status_arr: List[List[int]]) -> None:
+    """print_status
     Args:
-        line (str): The line of input from which to retrieve the metrics.
-
-    Returns:
-        int: The new total file size.
-    '''
-    line_info = extract_input(line)
-    status_code = line_info.get('status_code', '0')
-    if status_code in status_codes_stats.keys():
-        status_codes_stats[status_code] += 1
-    return total_file_size + line_info['file_size']
+        status_arr (List[List[int]]): status array
+    """
+    for status in status_arr:
+        if status[1] > 0:
+            print(f"{status[0]}: {status[1]}")
 
 
-def run():
-    '''Starts the log parser.
-    '''
-    line_num = 0
-    total_file_size = 0
-    status_codes_stats = {
-        '200': 0,
-        '301': 0,
-        '400': 0,
-        '401': 0,
-        '403': 0,
-        '404': 0,
-        '405': 0,
-        '500': 0,
-    }
-    try:
-        while True:
-            line = input()
-            total_file_size = update_metrics(
-                line,
-                total_file_size,
-                status_codes_stats,
-            )
-            line_num += 1
-            if line_num % 10 == 0:
-                print_statistics(total_file_size, status_codes_stats)
-    except (KeyboardInterrupt, EOFError):
-        print_statistics(total_file_size, status_codes_stats)
+def print_infos(total_file_size: int, possible_states: List[List[int]]) -> None:  # noqa
+    """print_infos
+    Args:
+        total_file_size (int): total file size
+        possible_states (List[List[int]]): possible states
+    """
+    print("File size: {}".format(total_file_size))
+    print_status(possible_states)
 
 
-if __name__ == '__main__':
-    run()
+def update_possible_states(poss_stats: List[List[int]], matched_stat: int) -> None:  # noqa
+    """update_possible_states
+    Args:
+        poss_stats (List[List[int]]): possible states
+        matched_stat (int): matched status
+    """
+    for stat in poss_stats:
+        if stat[0] == matched_stat:
+            stat[1] += 1
+            break
+
+
+try:
+    for line in sys.stdin:
+        matched = re.search(REGEX_PATTERN, line)
+        if not matched:
+            continue
+        total_file_size += int(matched.group(3))
+        counter += 1
+        update_possible_states(possible_states, int(matched.group(2)))
+        if counter == 10:
+            counter = 0
+            print_infos(total_file_size, possible_states)
+
+except Exception as e:
+    pass
+
+finally:
+    print_infos(total_file_size, possible_states)
